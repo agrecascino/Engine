@@ -1,4 +1,4 @@
-
+#include "stdafx.h"
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -9,10 +9,11 @@
 #include <memory>
 #include <iostream>
 #include <vector>
+#include <thread>
 #include <algorithm>
 #include <math.h>
-#include <rapidxml.h>
-#include <rapidxml_utils.h>
+#include <rapidxml.hpp>
+#include <rapidxml_utils.hpp>
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 #include <BulletCollision/CollisionDispatch/btDefaultCollisionConfiguration.h>
 #include <BulletCollision/BroadphaseCollision/btAxisSweep3.h>
@@ -36,9 +37,11 @@
 #include <freetype/ftoutln.h>
 #include <freetype/fttrigon.h>
 #include <bmpread.h>
+#include <libopenmpt\libopenmpt.h>
+#include <libopenmpt\libopenmpt_stream_callbacks_file.h>
+#include <freetype\freetype.h>
 
-#include FT_FREETYPE_H
-
+#pragma comment(lib,"libopenmpt.lib")
 #pragma comment(lib,"glew32.lib")
 #pragma comment(lib,"glfw3.lib")
 #pragma comment(lib,"opengl32.lib")
@@ -53,6 +56,7 @@
 #pragma comment(lib,"BulletInverseDynamics_debug.lib")
 #pragma comment(lib,"LinearMath_debug.lib")
 #pragma comment(lib,"freetype.lib")
+#pragma comment(lib,"openal32.lib")
 
 class Engine;
 
@@ -124,6 +128,13 @@ public:
 private:
 };
 
+inline bool isEqual(double x, double y)
+{
+	const double epsilon = 1e-3/* some small number such as 1e-5 */;
+	return std::abs(x - y) <= epsilon * std::abs(x);
+	// see Knuth section 4.2.2 pages 217-218
+}
+
 class Camera : public CollidableEntity {
 public:
 	Camera(btDynamicsWorld *bt_world) {
@@ -131,8 +142,8 @@ public:
 		camera_controller->setFriction(1);
 		current_world = bt_world;
 		fixed = false;
-        FT_New_Face(ft, "FreeSans.ttf", 0, &face);
-        FT_Set_Pixel_Sizes(face, 0, 16);
+        //FT_New_Face(ft, "FreeSans.ttf", 0, &face);
+        //FT_Set_Pixel_Sizes(face, 0, 16);
 	}
 
 	virtual void setPosition(glm::vec3 pos) {
@@ -156,7 +167,6 @@ public:
         double xpos = 0, ypos = 0;
         if (!no) {
             glfwGetCursorPos(windowptr, &xpos, &ypos);
-            std::cout << xpos << " " << ypos << std::endl;
 
 		}
 		else {
@@ -214,13 +224,14 @@ public:
 
         if (glfwGetKey(windowptr, GLFW_KEY_SPACE) == GLFW_PRESS) {
             if(jumpEnable) {
-                camera_controller->applyCentralImpulse(btVector3(0, 3, 0));
+                camera_controller->applyCentralImpulse(btVector3(0, 24, 0));
                 jumpEnable = false;
             }
 		}
-
-        if(!jumpEnable && ((camera_controller->getLinearFactor().getY() > 0.0001) && camera_controller->getLinearFactor().getY() < 0.0001)) {
-            framectr++;
+		//std::cout << "y" << camera_controller->getLinearVelocity().getY() << std::endl;
+        if(!jumpEnable && (camera_controller->getLinearVelocity().getY())) {
+			std::cout << "iframe" << std::endl;
+			framectr++;
         }
         if(framectr == 3) {
             jumpEnable = true;
@@ -250,7 +261,7 @@ private:
     float speed = 20.0f;
 	float horizontal = 3.14f;
 	float vertical = 0.0f;
-    float mspeed = 0.05f;
+    float mspeed = 0.0005f;
 	glm::mat4 viewmatrix;
 	btDynamicsWorld *current_world;
 	//btPairCachingGhostObject *ghost = new btPairCachingGhostObject();
@@ -440,9 +451,50 @@ private:
 class MediaStreamer {
 public:
 	MediaStreamer() {
-		//alutInit(NULL, NULL);
+		alutInit(NULL, NULL);
+		alGenSources(32, sources);
+	}
+	void songPlayerWorker(openmpt_module *mod) {
+		int status;
+		std::vector<ALuint> buffer;
+		int buffers = 0;
+		while (true) {
+			int16_t samples[11025 * 2];
+			alGetSourcei(sources[0], AL_BUFFERS_PROCESSED, &status);
+			alGetSourcei(sources[0], AL_BUFFERS_QUEUED, &buffers);
+			if ((status + 3) < (buffers)) {
+				continue;
+			}
+			if (status > 0 && status <= buffer.size())
+			{
+				alSourceUnqueueBuffers(sources[0], status, buffer.data());
+				alDeleteBuffers(status, &buffer[0]);
+				buffer.erase(buffer.begin(), buffer.begin() + status);
+			}
+			buffer.push_back(0);
+			alGenBuffers(1, &buffer.back());
+			std::this_thread::sleep_for(std::chrono::milliseconds((11000/44100)*1000));
+			openmpt_module_read_interleaved_stereo(mod, 44100, 11025, samples);
+			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
+			alBufferData(buffer.back(), AL_FORMAT_STEREO16, samples, 22050 * 2, 44100);
+			alSourceQueueBuffers(sources[0], 1, &buffer.back());
+			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
+			if (status != AL_PLAYING) {
+				alSourcePlay(sources[0]);
+			}
+		}
+		openmpt_module_destroy(mod);
+	}
+	int playModule(openmpt_module *mod) {
+		t = std::thread(&MediaStreamer::songPlayerWorker, this, mod);
+		t.detach();
+		return true;
+	}
+	int QueueNewSound(ALuint buffer) {
+
 	}
 private:
+	std::thread t;
 	ALuint sources[32];
 };
 
@@ -557,7 +609,7 @@ public:
 		glfwMakeContextCurrent(window);
 		glewInit();
         //glfwSetInputMode(window, GLFW_CURSOR, 1);
-        glfwSetInputMode(window, GLFW_CURSOR,GLFW_CURSOR_NORMAL);
+        glfwSetInputMode(window, GLFW_CURSOR,GLFW_CURSOR_HIDDEN);
 		glfwSetCursorPos(window, 800, 450);
 		glfwSwapInterval(1);
 		glEnable(GL_LIGHTING);
@@ -651,8 +703,15 @@ public:
 		document.parse<0>(xmlfile.data());
 		rapidxml::xml_node<> *currentnode = (document.first_node());
 		while (currentnode != NULL) {
-			if (strcmp(currentnode->name(),"engineinline") == 0) {
+			if (strcmp(currentnode->name(), "engineinline") == 0) {
 				loadEngineInline(currentnode->value());
+			}
+			if (strcmp(currentnode->name(), "song") == 0) {
+				FILE *file = fopen(currentnode->value(), "rb");
+				if (file != NULL) {
+					openmpt_module *mod = openmpt_module_create(openmpt_stream_get_file_callbacks(), file, NULL, NULL, NULL);
+					audio.playModule(mod);
+				}
 			}
 
 			if (strcmp(currentnode->name(), "mapgeometry") == 0) {
