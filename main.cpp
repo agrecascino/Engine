@@ -1,4 +1,5 @@
-#include "stdafx.h"
+#define DR_WAV_IMPLEMENTATION
+#include <dr_wav.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -12,8 +13,8 @@
 #include <thread>
 #include <algorithm>
 #include <math.h>
-#include <rapidxml.hpp>
-#include <rapidxml_utils.hpp>
+#include <rapidxml.h>
+#include <rapidxml_utils.h>
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 #include <BulletCollision/CollisionDispatch/btDefaultCollisionConfiguration.h>
 #include <BulletCollision/BroadphaseCollision/btAxisSweep3.h>
@@ -24,6 +25,7 @@
 #include <BulletDynamics/Character/btKinematicCharacterController.h>
 #include <BulletCollision/CollisionShapes/btBvhTriangleMeshShape.h>
 #include <BulletCollision/CollisionShapes/btTriangleMesh.h>
+#include <BulletCollision/Gimpact/btGImpactShape.h>
 #include <BulletCollision/CollisionShapes/btCapsuleShape.h>
 #include <BulletCollision/CollisionShapes/btEmptyShape.h>
 #include <BulletCollision/Gimpact/btGImpactCollisionAlgorithm.h>
@@ -37,9 +39,9 @@
 #include <freetype/ftoutln.h>
 #include <freetype/fttrigon.h>
 #include <bmpread.h>
-#include <libopenmpt\libopenmpt.h>
-#include <libopenmpt\libopenmpt_stream_callbacks_file.h>
-#include <freetype\freetype.h>
+#include <libopenmpt/libopenmpt.h>
+#include <libopenmpt/libopenmpt_stream_callbacks_file.h>
+#include FT_FREETYPE_H
 
 #pragma comment(lib,"libopenmpt.lib")
 #pragma comment(lib,"glew32.lib")
@@ -82,6 +84,90 @@ inline int next_p2 (int a )
     while(rval<a) rval<<=1;
     return rval;
 }
+class MediaStreamer {
+public:
+	MediaStreamer() {
+		alutInit(NULL, NULL);
+		alGenSources(32, sources);
+		memset(&sourcestate, 0, sizeof(bool) * 32);
+	}
+	void songPlayerWorker(openmpt_module *mod) {
+		int status;
+		std::vector<ALuint> buffer;
+		int buffers = 0;
+		while (true) {
+			int16_t samples[11025 * 2];
+			alGetSourcei(sources[0], AL_BUFFERS_PROCESSED, &status);
+			alGetSourcei(sources[0], AL_BUFFERS_QUEUED, &buffers);
+			if ((status + 1) < (buffers)) {
+				continue;
+			}
+			if (status > 0 && status <= buffer.size())
+			{
+				alSourceUnqueueBuffers(sources[0], status, buffer.data());
+				alDeleteBuffers(status, &buffer[0]);
+				buffer.erase(buffer.begin(), buffer.begin() + status);
+			}
+			buffer.push_back(0);
+			alGenBuffers(1, &buffer.back());
+			std::this_thread::sleep_for(std::chrono::milliseconds((11000 / 44100) * 1000));
+			openmpt_module_read_interleaved_stereo(mod, 44100, 11025, samples);
+			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
+			alBufferData(buffer.back(), AL_FORMAT_STEREO16, samples, 22050 * 2, 44100);
+			alSourceQueueBuffers(sources[0], 1, &buffer.back());
+			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
+			if (status != AL_PLAYING) {
+				alSourcePlay(sources[0]);
+			}
+		}
+		openmpt_module_destroy(mod);
+	}
+
+	void sfxPlayerWorker(int sid, ALint format, int16_t *samples, uint32_t len) {
+		int status;
+
+		ALuint buffer;
+		alGenBuffers(1, &buffer);
+		alBufferData(buffer, format, samples, len*((format == AL_FORMAT_STEREO16) ? 2 : 1), 44100);
+		alSourcei(sources[sid], AL_BUFFER, buffer);
+		int buffers = 0;
+		alSourcePlay(sources[sid]);
+		alGetSourcei(sources[sid], AL_SOURCE_STATE, &status);
+		while (status == AL_PLAYING) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			alGetSourcei(sources[sid], AL_SOURCE_STATE, &status);
+		}
+		delete[] samples;
+		alDeleteBuffers(1, &buffer);
+		sourcestate[sid] = false;
+	}
+
+	int playModule(openmpt_module *mod) {
+		t[0] = std::thread(&MediaStreamer::songPlayerWorker, this, mod);
+		t[0].detach();
+		return true;
+	}
+	int QueueNewSound(int16_t *ptr, int size, int stereo) {
+		ALint state;
+		for (int i = 1; i < 32; i++) {
+			alGetSourcei(sources[i], AL_SOURCE_STATE, &state);
+			if (!sourcestate[i]) {
+				sourcestate[i] = true;
+				int16_t *copy = new int16_t[size];
+				memcpy(copy, ptr, size * 2);
+				ALint format = stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16;
+				t[i] = std::thread(&MediaStreamer::sfxPlayerWorker, this, i, format, copy, size);
+				t[i].detach();
+				return true;
+			}
+		}
+		return false;
+	}
+private:
+	bool sourcestate[32];
+	std::thread t[32];
+	ALuint sources[32];
+};
 
 class Entity {
 public:
@@ -119,6 +205,76 @@ protected:
 	
 };
 
+class PhysCube : public CollidableEntity {
+public:
+	PhysCube(glm::vec3 position, glm::vec3 direction) {
+        obj->setMassProps(2.0, btVector3(0,0,0));
+		obj->setCollisionShape(new btBoxShape(btVector3(1, 1, 1)));
+		this->setPosition(direction*btScalar(4.0) + position);
+		this->obj->applyCentralImpulse(btVector3(direction.x*16, direction.y*16, direction.z*16));
+	}
+
+	void drawSelf() {
+		btScalar m[16];
+		obj->getWorldTransform().getOpenGLMatrix(m);
+		btVector3 v = obj->getWorldTransform().getOrigin();
+		GLfloat matrix[16];
+		glGetFloatv(GL_MODELVIEW_MATRIX, matrix);
+		glMatrixMode(GL_MODELVIEW);
+		//glPushMatrix();
+		//glLoadIdentity();
+		glTranslatef(v.getX(), v.getY(), v.getZ());
+		//lMultMatrixf(m);
+		glBegin(GL_TRIANGLES);
+		for (size_t i = 0; i < 108; i += 3) {
+			btVector4 vec(g_vertex_buffer_data[i], g_vertex_buffer_data[i + 1], g_vertex_buffer_data[i + 2], 1.0);
+			glVertex3f(vec.getX(), vec.getY(), vec.getZ());
+		}
+		glEnd();
+		//glPopMatrix();
+		glLoadMatrixf(matrix);
+	}
+private:
+	 const GLfloat g_vertex_buffer_data[108] = {
+		-1.0f,-1.0f,-1.0f, // triangle 1 : begin
+		-1.0f,-1.0f, 1.0f,
+		-1.0f, 1.0f, 1.0f, // triangle 1 : end
+		1.0f, 1.0f,-1.0f, // triangle 2 : begin
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f,-1.0f, // triangle 2 : end
+		1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f, 1.0f,
+		-1.0f,-1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		-1.0f,-1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f,-1.0f,
+		1.0f,-1.0f,-1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f,-1.0f,
+		-1.0f, 1.0f,-1.0f,
+		1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f,-1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f, 1.0f, 1.0f,
+		-1.0f, 1.0f, 1.0f,
+		1.0f,-1.0f, 1.0f
+	};
+};
+
 class Sky : public RenderedEntity {
 public:
 	void drawSelf(void) {
@@ -135,140 +291,7 @@ inline bool isEqual(double x, double y)
 	// see Knuth section 4.2.2 pages 217-218
 }
 
-class Camera : public CollidableEntity {
-public:
-	Camera(btDynamicsWorld *bt_world) {
-		//camera_controller->setGravity(btVector3(0, -9, 0));
-		camera_controller->setFriction(1);
-		current_world = bt_world;
-		fixed = false;
-        //FT_New_Face(ft, "FreeSans.ttf", 0, &face);
-        //FT_Set_Pixel_Sizes(face, 0, 16);
-	}
 
-	virtual void setPosition(glm::vec3 pos) {
-		camera_controller->getWorldTransform().setOrigin(btVector3(pos.x, pos.y, pos.z));
-	}
-
-	btRigidBody *getCameraController(void) {
-		return camera_controller;
-	}
-
-	void updateCamera(GLFWwindow *windowptr, double dt) {
-		camera_controller->activate(true);
-		btVector3 location = camera_controller->getWorldTransform().getOrigin();
-		glEnable(GL_LIGHT0);
-		float position[] = { location.getX(),location.getY(),location.getZ(),1.0f };
-		float ambient[] = { 0.1f, (25.5 / 255.0),(25.5 / 255.0) };
-		float light_direction[] = { 0.0f, -1.0f, 0.0f, 1.0f };
-		glLightfv(GL_LIGHT0, GL_POSITION, position);
-		glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
-		glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, light_direction);
-        double xpos = 0, ypos = 0;
-        if (!no) {
-            glfwGetCursorPos(windowptr, &xpos, &ypos);
-
-		}
-		else {
-			xpos = 800;
-			ypos = 450;
-		}
-		glfwSetCursorPos(windowptr, 800, 450);
-        horizontal += dt * mspeed * (800 - xpos);
-        vertical += dt * mspeed * (450 - ypos);
-
-		if (vertical > 1.5f) {
-			vertical = 1.5f;
-		}
-		else if (vertical < -1.5f) {
-			vertical = -1.5f;
-		}
-		glm::vec3 direction(cos(vertical) * sin(horizontal), sin(vertical), cos(horizontal) * cos(vertical));
-		glm::vec3 right = glm::vec3(sin(horizontal - 3.14f / 2.0f), 0, cos(horizontal - 3.14f / 2.0f));
-		glm::vec3 up = glm::cross(right, direction);
-
-
-		if (glfwGetKey(windowptr, GLFW_KEY_W) == GLFW_PRESS) {
-			glm::vec3 temporary = direction * speed * (float)dt;
-			temporary.y = 0;
-			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-		}
-
-		if (glfwGetKey(windowptr, GLFW_KEY_S) == GLFW_PRESS) {
-			glm::vec3 temporary = -(direction * speed * (float)dt);
-			temporary.y = 0;
-			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-		}
-
-		if (glfwGetKey(windowptr, GLFW_KEY_D) == GLFW_PRESS) {
-			glm::vec3 temporary = right * speed * (float)dt;
-			temporary.y = 0;
-			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-
-		}
-
-		if (glfwGetKey(windowptr, GLFW_KEY_A) == GLFW_PRESS) {
-			glm::vec3 temporary = -(right * speed) * (float)dt;
-			temporary.y = 0;
-			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-		}
-
-		if (glfwGetKey(windowptr, GLFW_KEY_N) == GLFW_PRESS) {
-			no = true;
-			if (current_world->getGravity().getY() == 0) {
-				current_world->setGravity(btVector3(0, -9, 0));
-				goto bail;
-			}
-			current_world->setGravity(btVector3(0, 0, 0));
-		}
-
-        if (glfwGetKey(windowptr, GLFW_KEY_SPACE) == GLFW_PRESS) {
-            if(jumpEnable) {
-                camera_controller->applyCentralImpulse(btVector3(0, 24, 0));
-                jumpEnable = false;
-            }
-		}
-		//std::cout << "y" << camera_controller->getLinearVelocity().getY() << std::endl;
-        if(!jumpEnable && (camera_controller->getLinearVelocity().getY())) {
-			std::cout << "iframe" << std::endl;
-			framectr++;
-        }
-        if(framectr == 3) {
-            jumpEnable = true;
-            framectr = 0;
-        }
-
-	bail:
-		btVector3 vel = camera_controller->getLinearVelocity();
-		vel.setY(clip(vel.getY(),-32,32));
-        vel.setX(clip(vel.getX(), -12, 12));
-        vel.setZ(clip(vel.getZ(), -12, 12));
-		camera_controller->setLinearVelocity(vel);
-        viewmatrix = glm::lookAt(glm::vec3(location.getX(), location.getY(), location.getZ()), glm::vec3(location.getX(),location.getY(),location.getZ()) + direction, up) * glm::mat4(1.0);
-		//std::cout << location.getY() << std::endl;
-        camera_controller->setMotionState(groundMotionState);
-		glMatrixMode(GL_MODELVIEW);
-		glLoadMatrixf(&viewmatrix[0][0]);
-		glMatrixMode(GL_PROJECTION);
-		glLoadMatrixf(&projectionmatrix[0][0]);
-        speed = 20.0f;
-	}
-private:
-    int framectr = 0;
-    bool jumpEnable = true;
-	bool no = false;
-	FT_Face face;
-    float speed = 20.0f;
-	float horizontal = 3.14f;
-	float vertical = 0.0f;
-    float mspeed = 0.0005f;
-	glm::mat4 viewmatrix;
-	btDynamicsWorld *current_world;
-	//btPairCachingGhostObject *ghost = new btPairCachingGhostObject();
-	btDefaultMotionState* groundMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(0, 0, 0)));
-	btRigidBody *camera_controller = new btRigidBody(2, groundMotionState, new btCapsuleShape(1, 2));
-	glm::mat4 projectionmatrix = glm::perspective(45.0f,16.0f/9.0f, 0.1f, 10000.0f);
-};
 
 btVector3 convert(glm::vec3 v) {
 	return btVector3(v.x, v.y, v.z);
@@ -309,9 +332,8 @@ public:
 			}
 		}
 		else {
-			for (size_t i = 0; i < polygons.size(); i += 4) {
-				mesh->addTriangle(convert(polygons[i]), convert(polygons[i + 1]), convert(polygons[i + 2]));
-				mesh->addTriangle(convert(polygons[i + 1]), convert(polygons[i + 2]), convert(polygons[i + 3]));
+			for (size_t i = 0; i < vertices.size(); i += 3) {
+				mesh->addTriangle(convert(vertices[i]), convert(vertices[i + 1]), convert(vertices[i + 2]));
 			}
 		}
 		obj->setCollisionShape(new btBvhTriangleMeshShape(mesh, false));
@@ -448,56 +470,6 @@ public:
 private:
 };
 
-class MediaStreamer {
-public:
-	MediaStreamer() {
-		alutInit(NULL, NULL);
-		alGenSources(32, sources);
-	}
-	void songPlayerWorker(openmpt_module *mod) {
-		int status;
-		std::vector<ALuint> buffer;
-		int buffers = 0;
-		while (true) {
-			int16_t samples[11025 * 2];
-			alGetSourcei(sources[0], AL_BUFFERS_PROCESSED, &status);
-			alGetSourcei(sources[0], AL_BUFFERS_QUEUED, &buffers);
-			if ((status + 3) < (buffers)) {
-				continue;
-			}
-			if (status > 0 && status <= buffer.size())
-			{
-				alSourceUnqueueBuffers(sources[0], status, buffer.data());
-				alDeleteBuffers(status, &buffer[0]);
-				buffer.erase(buffer.begin(), buffer.begin() + status);
-			}
-			buffer.push_back(0);
-			alGenBuffers(1, &buffer.back());
-			std::this_thread::sleep_for(std::chrono::milliseconds((11000/44100)*1000));
-			openmpt_module_read_interleaved_stereo(mod, 44100, 11025, samples);
-			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
-			alBufferData(buffer.back(), AL_FORMAT_STEREO16, samples, 22050 * 2, 44100);
-			alSourceQueueBuffers(sources[0], 1, &buffer.back());
-			alGetSourcei(sources[0], AL_SOURCE_STATE, &status);
-			if (status != AL_PLAYING) {
-				alSourcePlay(sources[0]);
-			}
-		}
-		openmpt_module_destroy(mod);
-	}
-	int playModule(openmpt_module *mod) {
-		t = std::thread(&MediaStreamer::songPlayerWorker, this, mod);
-		t.detach();
-		return true;
-	}
-	int QueueNewSound(ALuint buffer) {
-
-	}
-private:
-	std::thread t;
-	ALuint sources[32];
-};
-
 class CollisionManager {
 	friend class EntityManager;
 	friend class glRenderer;
@@ -599,10 +571,171 @@ private:
 	std::map<unsigned long, std::unique_ptr<CollidableEntity>> &collidables = collision.collidables;
 };
 
+class Camera : public CollidableEntity {
+public:
+	Camera(btDynamicsWorld *bt_world, MediaStreamer &audio, EntityManager &manager) : audio(audio), manager(manager) {
+		//camera_controller->setGravity(btVector3(0, -9, 0));
+		camera_controller->setFriction(1);
+		current_world = bt_world;
+		fixed = false;
+		//FT_New_Face(ft, "FreeSans.ttf", 0, &face);
+		//FT_Set_Pixel_Sizes(face, 0, 16);
+		pWav = drwav_open_file("bang.wav");
+		pSampleData = new int16_t[pWav->totalSampleCount];
+		pWav->channels;
+		drwav_read_s16(pWav, pWav->totalSampleCount, pSampleData);
+	}
+
+	virtual void setPosition(glm::vec3 pos) {
+		camera_controller->getWorldTransform().setOrigin(btVector3(pos.x, pos.y, pos.z));
+	}
+
+	btRigidBody *getCameraController(void) {
+		return camera_controller;
+	}
+
+	void updateCamera(GLFWwindow *windowptr, double dt) {
+		camera_controller->activate(true);
+		btVector3 location = camera_controller->getWorldTransform().getOrigin();
+		glEnable(GL_LIGHT0);
+		double xpos = 0, ypos = 0;
+		if (!no) {
+			glfwGetCursorPos(windowptr, &xpos, &ypos);
+
+		}
+		else {
+			xpos = 800;
+			ypos = 450;
+		}
+		glfwSetCursorPos(windowptr, 800, 450);
+		horizontal += dt * mspeed * (800 - xpos);
+		vertical += dt * mspeed * (450 - ypos);
+
+		if (vertical > 1.5f) {
+			vertical = 1.5f;
+		}
+		else if (vertical < -1.5f) {
+			vertical = -1.5f;
+		}
+		glm::vec3 direction(cos(vertical) * sin(horizontal), sin(vertical), cos(horizontal) * cos(vertical));
+		glm::vec3 right = glm::vec3(sin(horizontal - 3.14f / 2.0f), 0, cos(horizontal - 3.14f / 2.0f));
+		glm::vec3 up = glm::cross(right, direction);
+		float position[] = { location.getX(),location.getY(),location.getZ(),1.0f };
+		float ambient[] = { 0.2f, (51 / 255.0),(51 / 255.0) };
+		//float light_direction[] = { position.x, position.y, position.z, 1.0f };
+		glLightfv(GL_LIGHT0, GL_POSITION, position);
+		glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+
+		if (glfwGetKey(windowptr, GLFW_KEY_W) == GLFW_PRESS) {
+            glm::vec3 temporary = direction * speed * (float)dt;
+            temporary.y = 0;
+            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+		}
+
+		if (glfwGetKey(windowptr, GLFW_KEY_S) == GLFW_PRESS) {
+            glm::vec3 temporary = -(direction * speed * (float)dt);
+            temporary.y = 0;
+            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+		}
+
+		if (glfwGetKey(windowptr, GLFW_KEY_D) == GLFW_PRESS) {
+            glm::vec3 temporary = right * speed * (float)dt;
+            temporary.y = 0;
+            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+
+		}
+
+		if (glfwGetKey(windowptr, GLFW_KEY_A) == GLFW_PRESS) {
+			glm::vec3 temporary = -(right * speed) * (float)dt;
+			temporary.y = 0;
+			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+		}
+
+		if (glfwGetKey(windowptr, GLFW_KEY_N) == GLFW_PRESS) {
+			no = true;
+			if (current_world->getGravity().getY() == 0) {
+				current_world->setGravity(btVector3(0, -9, 0));
+				goto bail;
+			}
+			current_world->setGravity(btVector3(0, 0, 0));
+		}
+
+		if (glfwGetKey(windowptr, GLFW_KEY_SPACE) == GLFW_PRESS) {
+			if (jumpEnable) {
+				camera_controller->applyCentralImpulse(btVector3(0, 24, 0));
+				jumpEnable = false;
+			}
+		}
+
+		if (cubeEnable && (glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS)) {
+			audio.QueueNewSound(pSampleData, pWav->totalSampleCount, true);
+			PhysCube *cube = new PhysCube(glm::vec3(location.getX(), location.getY(), location.getZ()), direction);
+			cube->setPosition(direction*btScalar(4.0) + glm::vec3(camera_controller->getWorldTransform().getOrigin().getX(), camera_controller->getWorldTransform().getOrigin().getY(), camera_controller->getWorldTransform().getOrigin().getZ()));
+			std::unique_ptr<CollidableEntity> physc;
+			physc.reset(cube);
+			manager.addEntity(physc);
+			cubeEnable = false;
+		}
+		if (!cubeEnable) {
+			cctr++;
+		}
+		//std::cout << "y" << camera_controller->getLinearVelocity().getY() << std::endl;
+		if (!jumpEnable && (camera_controller->getLinearVelocity().getY() < 0.001f) && (camera_controller->getLinearVelocity().getY() > -0.001f)) {
+			std::cout << "iframe" << std::endl;
+			framectr++;
+		}
+		if (framectr == 3) {
+			jumpEnable = true;
+			framectr = 0;
+		}
+
+		if (cctr == 12) {
+			cubeEnable = true;
+			cctr = 0;
+		}
+
+	bail:
+		btVector3 vel = camera_controller->getLinearVelocity();
+		vel.setY(clip(vel.getY(), -32, 32));
+		vel.setX(clip(vel.getX(), -12, 12));
+		vel.setZ(clip(vel.getZ(), -12, 12));
+		camera_controller->setLinearVelocity(vel);
+		viewmatrix = glm::lookAt(glm::vec3(location.getX(), location.getY(), location.getZ()), glm::vec3(location.getX(), location.getY(), location.getZ()) + direction, up) * glm::mat4(1.0);
+		//std::cout << location.getY() << std::endl;
+		camera_controller->setMotionState(groundMotionState);
+		glMatrixMode(GL_MODELVIEW);
+		glLoadMatrixf(&viewmatrix[0][0]);
+		glMatrixMode(GL_PROJECTION);
+		glLoadMatrixf(&projectionmatrix[0][0]);
+		speed = 20.0f;
+	}
+private:
+	EntityManager &manager;
+	int16_t* pSampleData;
+	MediaStreamer &audio;
+	drwav* pWav;
+	int framectr = 0;
+	int cctr = 0;
+	bool jumpEnable = true;
+	bool cubeEnable = true;
+	bool no = false;
+	FT_Face face;
+	float speed = 20.0f;
+	float horizontal = 3.14f;
+	float vertical = 0.0f;
+	float mspeed = 0.005f;
+	glm::mat4 viewmatrix;
+	btDynamicsWorld *current_world;
+	//btPairCachingGhostObject *ghost = new btPairCachingGhostObject();
+	btDefaultMotionState* groundMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(0, 0, 0)));
+	btRigidBody *camera_controller = new btRigidBody(2, groundMotionState, new btCapsuleShape(1, 2));
+	glm::mat4 projectionmatrix = glm::perspective(45.0f, 16.0f / 9.0f, 0.1f, 10000.0f);
+};
+
 class glRenderer {
 	friend class EntityManager;
 public:
-	glRenderer(EntityManager &manager) : manager(manager), camera(manager.collision.bt_world) {
+	glRenderer(EntityManager &manager, MediaStreamer &audio) : audio(audio), manager(manager), camera(manager.collision.bt_world, audio, manager) {
         int t = 0;
 		glfwInit();
 		window = glfwCreateWindow(1600, 900, "Cultural Enrichment", NULL, NULL);
@@ -614,7 +747,7 @@ public:
 		glfwSwapInterval(1);
 		glEnable(GL_LIGHTING);
 		glEnable(GL_DEPTH_TEST);
-		glDepthFunc(GL_LESS);
+		glDepthFunc(GL_LEQUAL);
 		manager.collision.bt_world->addRigidBody(camera.getCameraController());
 		camera.setPosition(glm::vec3(3,20,3));
 		oldtime = glfwGetTime();
@@ -629,7 +762,7 @@ public:
 	int handleInput() {
 		newtime = glfwGetTime();
 		//std::cout << (newtime - oldtime) << std::endl;
-		double dt = (newtime - oldtime)* 62.5;
+		double dt = ((double)newtime - (double)oldtime) * 16;
 		double phystime = newtime - lastphysrun;
 		//std::cout << (phystime * 1000) << std::endl;
 		if ((phystime * 1000) > 0) {
@@ -656,7 +789,7 @@ private:
 	double oldtime = 0.0;
 	double newtime = 0.0;
 	Camera camera;
-
+	MediaStreamer &audio;
 	EntityManager &manager;
 	GLFWwindow *window = NULL;
 };
@@ -664,7 +797,7 @@ private:
 class Engine {
 	friend class glRenderer;
 public:
-    Engine() : video(manager) {
+    Engine() : video(manager, audio) {
 		FT_Init_FreeType(&ft);
 		rapidxml::file<> xmlfile("startup.xml");
 		rapidxml::xml_document<> document;
