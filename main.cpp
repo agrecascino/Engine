@@ -594,9 +594,9 @@ public:
 		//FT_New_Face(ft, "FreeSans.ttf", 0, &face);
 		//FT_Set_Pixel_Sizes(face, 0, 16);
 		pWav = drwav_open_file("bang.wav");
-        //pSampleData = new int16_t[pWav->totalSampleCount];
+        pSampleData = new int16_t[pWav->totalSampleCount];
         //pWav->channels;
-        //drwav_read_s16(pWav, pWav->totalSampleCount, pSampleData);
+        drwav_read_s16(pWav, pWav->totalSampleCount, pSampleData);
 	}
 
 	virtual void setPosition(glm::vec3 pos) {
@@ -689,7 +689,7 @@ public:
 		}
 
 		if (cubeEnable && (glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS)) {
-            //audio.QueueNewSound(pSampleData, pWav->totalSampleCount, true);
+            audio.QueueNewSound(pSampleData, pWav->totalSampleCount, true);
 			PhysCube *cube = new PhysCube(glm::vec3(location.getX(), location.getY(), location.getZ()), direction);
 			cube->setPosition(direction*btScalar(4.0) + glm::vec3(camera_controller->getWorldTransform().getOrigin().getX(), camera_controller->getWorldTransform().getOrigin().getY(), camera_controller->getWorldTransform().getOrigin().getZ()));
 			std::unique_ptr<CollidableEntity> physc;
