@@ -12,6 +12,7 @@
 #include <vector>
 #include <thread>
 #include <algorithm>
+#include <atomic>
 #include <math.h>
 #include <rapidxml.h>
 #include <rapidxml_utils.h>
@@ -119,7 +120,11 @@ public:
 			if (status != AL_PLAYING) {
 				alSourcePlay(sources[0]);
 			}
+            if(end) {
+                goto end;
+            }
 		}
+        end:
 		openmpt_module_destroy(mod);
 	}
 
@@ -163,7 +168,15 @@ public:
 		}
 		return false;
 	}
+    ~MediaStreamer() {
+        end = true;
+        if(t[0].joinable()) {
+            t[0].join();
+        }
+    }
+
 private:
+    bool end = false;
 	bool sourcestate[32];
 	std::thread t[32];
 	ALuint sources[32];
@@ -581,9 +594,9 @@ public:
 		//FT_New_Face(ft, "FreeSans.ttf", 0, &face);
 		//FT_Set_Pixel_Sizes(face, 0, 16);
 		pWav = drwav_open_file("bang.wav");
-		pSampleData = new int16_t[pWav->totalSampleCount];
-		pWav->channels;
-		drwav_read_s16(pWav, pWav->totalSampleCount, pSampleData);
+        //pSampleData = new int16_t[pWav->totalSampleCount];
+        //pWav->channels;
+        //drwav_read_s16(pWav, pWav->totalSampleCount, pSampleData);
 	}
 
 	virtual void setPosition(glm::vec3 pos) {
@@ -625,31 +638,39 @@ public:
 		//float light_direction[] = { position.x, position.y, position.z, 1.0f };
 		glLightfv(GL_LIGHT0, GL_POSITION, position);
 		glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
-
+        bool moved = false;
 		if (glfwGetKey(windowptr, GLFW_KEY_W) == GLFW_PRESS) {
-            glm::vec3 temporary = direction * speed * (float)dt;
+            moved = true;
+            glm::vec3 temporary = direction * speed;
             temporary.y = 0;
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
 		}
 
 		if (glfwGetKey(windowptr, GLFW_KEY_S) == GLFW_PRESS) {
-            glm::vec3 temporary = -(direction * speed * (float)dt);
+            moved = true;
+            glm::vec3 temporary = -(direction * speed);
             temporary.y = 0;
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
 		}
 
 		if (glfwGetKey(windowptr, GLFW_KEY_D) == GLFW_PRESS) {
-            glm::vec3 temporary = right * speed * (float)dt;
+            moved = true;
+            glm::vec3 temporary = right * speed;
             temporary.y = 0;
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
 
 		}
 
 		if (glfwGetKey(windowptr, GLFW_KEY_A) == GLFW_PRESS) {
-			glm::vec3 temporary = -(right * speed) * (float)dt;
+            moved = true;
+            glm::vec3 temporary = -(right * speed);
 			temporary.y = 0;
-			camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-		}
+            camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+        }
 
 		if (glfwGetKey(windowptr, GLFW_KEY_N) == GLFW_PRESS) {
 			no = true;
@@ -668,7 +689,7 @@ public:
 		}
 
 		if (cubeEnable && (glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS)) {
-			audio.QueueNewSound(pSampleData, pWav->totalSampleCount, true);
+            //audio.QueueNewSound(pSampleData, pWav->totalSampleCount, true);
 			PhysCube *cube = new PhysCube(glm::vec3(location.getX(), location.getY(), location.getZ()), direction);
 			cube->setPosition(direction*btScalar(4.0) + glm::vec3(camera_controller->getWorldTransform().getOrigin().getX(), camera_controller->getWorldTransform().getOrigin().getY(), camera_controller->getWorldTransform().getOrigin().getZ()));
 			std::unique_ptr<CollidableEntity> physc;
@@ -723,12 +744,12 @@ private:
 	float speed = 20.0f;
 	float horizontal = 3.14f;
 	float vertical = 0.0f;
-	float mspeed = 0.005f;
+    float mspeed = 0.05f;
 	glm::mat4 viewmatrix;
 	btDynamicsWorld *current_world;
 	//btPairCachingGhostObject *ghost = new btPairCachingGhostObject();
 	btDefaultMotionState* groundMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(0, 0, 0)));
-	btRigidBody *camera_controller = new btRigidBody(2, groundMotionState, new btCapsuleShape(1, 2));
+    btRigidBody *camera_controller = new btRigidBody(2, groundMotionState, new btBoxShape(btVector3(1, 2, 1)));
 	glm::mat4 projectionmatrix = glm::perspective(45.0f, 16.0f / 9.0f, 0.1f, 10000.0f);
 };
 
@@ -744,15 +765,15 @@ public:
         //glfwSetInputMode(window, GLFW_CURSOR, 1);
         glfwSetInputMode(window, GLFW_CURSOR,GLFW_CURSOR_HIDDEN);
 		glfwSetCursorPos(window, 800, 450);
-		glfwSwapInterval(1);
+        glfwSwapInterval(1);
 		glEnable(GL_LIGHTING);
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LEQUAL);
 		manager.collision.bt_world->addRigidBody(camera.getCameraController());
 		camera.setPosition(glm::vec3(3,20,3));
 		oldtime = glfwGetTime();
-		newtime = glfwGetTime();
-		lastphysrun = glfwGetTime();
+        newtime = glfwGetTime();
+        lastphysrun = glfwGetTime();
 	}
 	void drawScreen() {
 		manager.drawAllObjects();
@@ -762,20 +783,21 @@ public:
 	int handleInput() {
 		newtime = glfwGetTime();
 		//std::cout << (newtime - oldtime) << std::endl;
-		double dt = ((double)newtime - (double)oldtime) * 16;
-		double phystime = newtime - lastphysrun;
-		//std::cout << (phystime * 1000) << std::endl;
-		if ((phystime * 1000) > 0) {
-			manager.collision.bt_world->stepSimulation(5);
-			lastphysrun = glfwGetTime();
-		}
-		//std::cout << dt << std::endl;
-		oldtime = glfwGetTime();
-		glfwPollEvents();
-		camera.updateCamera(window, dt);
+        dt += ((double)newtime - (double)oldtime);
+        if(dt > 0.016) {
+            double phystime = newtime - lastphysrun;
+            //std::cout << (phystime * 1000) << std::endl;
+            manager.collision.bt_world->stepSimulation(5);
+            lastphysrun = glfwGetTime();
+            std::cout << dt << std::endl;
+            glfwPollEvents();
+            camera.updateCamera(window, dt);
+            dt = 0;
+        }
 		if (glfwWindowShouldClose(window) || glfwGetKey(window,GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 			return -1;
 		}
+        oldtime = glfwGetTime();
 		return 0;
 		
 	}
@@ -785,6 +807,7 @@ public:
 		glfwTerminate();
 	}
 private:
+    double dt = 0.0;
 	double lastphysrun = 0.0;
 	double oldtime = 0.0;
 	double newtime = 0.0;
