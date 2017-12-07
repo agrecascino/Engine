@@ -186,6 +186,8 @@ class Entity {
 public:
     virtual void onTick(double dt) {}
     ~Entity() {}
+private:
+    std::unordered_map<std::string, std::function<
 };
 
 float clip(float n, float lower, float upper) {
@@ -648,24 +650,39 @@ public:
             moved = true;
             glm::vec3 temporary = direction * speed;
             temporary.y = 0;
+            btVector3 a(convert(temporary));
+            a.setY(camera_controller->getLinearVelocity().getY());
+            a.setX(a.getX() * 25);
+            a.setZ(a.getZ() * 25);
+            camera_controller->setLinearVelocity(a);
             //camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
         }
 
         if (glfwGetKey(windowptr, GLFW_KEY_S) == GLFW_PRESS) {
             moved = true;
             glm::vec3 temporary = -(direction * speed);
             temporary.y = 0;
+            btVector3 a(convert(temporary));
+            a.setY(camera_controller->getLinearVelocity().getY());
+            a.setX(a.getX() * 25);
+            a.setZ(a.getZ() * 25);
+            camera_controller->setLinearVelocity(a);
             //camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
         }
 
         if (glfwGetKey(windowptr, GLFW_KEY_D) == GLFW_PRESS) {
             moved = true;
             glm::vec3 temporary = right * speed;
             temporary.y = 0;
+            btVector3 a(convert(temporary));
+            a.setY(camera_controller->getLinearVelocity().getY());
+            a.setX(a.getX() * 25);
+            a.setZ(a.getZ() * 25);
+            camera_controller->setLinearVelocity(a);
             //camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
 
         }
 
@@ -673,8 +690,13 @@ public:
             moved = true;
             glm::vec3 temporary = -(right * speed);
             temporary.y = 0;
+            btVector3 a(convert(temporary));
+            a.setY(camera_controller->getLinearVelocity().getY());
+            a.setX(a.getX() * 25);
+            a.setZ(a.getZ() * 25);
+            camera_controller->setLinearVelocity(a);
             //camera_controller->setLinearVelocity(camera_controller->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-            camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+            //camera_controller->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
         }
 
         if (glfwGetKey(windowptr, GLFW_KEY_N) == GLFW_PRESS) {
