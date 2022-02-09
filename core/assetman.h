@@ -1,6 +1,5 @@
 #ifndef ASSETMAN_H
 #define ASSETMAN_H
-#define DR_WAV_IMPLEMENTATION
 #include "deps/dr_wav.h"
 #include "audio/media.h"
 #include "deps/bmpread.h"
@@ -12,50 +11,7 @@
 #include <iostream>
 #include "game/sky.h"
 #include <experimental/filesystem>
-
-enum ResourceType {
-    MAP,
-    TEXTURE,
-    SOUND,
-    SCHEMA,
-    INCOMPLETE
-};
-
-struct LoadedTexture {
-    bmpread_t loaded;
-};
-
-
-struct LoadedMap {
-    std::vector<std::shared_ptr<CollidableEntity>> collidables;
-    std::vector<std::shared_ptr<RenderedEntity>> renderables;
-    std::vector<std::shared_ptr<Entity>> entities;
-};
-
-
-
-
-struct Resource {
-    Resource(void) { type = INCOMPLETE; }
-
-    Resource(LoadedMap m) { type = MAP; maprep = m; }
-
-    Resource(LoadedTexture t) { type = TEXTURE; texturerep = t; }
-
-    Resource(LoadedSchema s) { type = SCHEMA; schemarep = s; }
-
-    Resource(MediaFile f) { type = SOUND; f = f; }
-
-    LoadedMap maprep;
-    LoadedTexture texturerep;
-    LoadedSchema schemarep;
-    MediaFile mediarep;
-    ResourceType type;
-    std::string filename;
-    bool newres = true;
-    int users = 0;
-    int generation = 0;
-};
+#include "core/resourcetypes.h"
 
 class AssetManager {
 public:
@@ -96,7 +52,7 @@ public:
         file.read((char*)filestart.data(), bytecount);
         if(openmpt_probe_file_header(OPENMPT_PROBE_FILE_HEADER_FLAGS_DEFAULT, &filestart,
                                      bytecount, NULL, NULL, NULL, NULL, NULL, NULL, NULL) ==
-           OPENMPT_PROBE_FILE_HEADER_RESULT_SUCCESS) {
+                OPENMPT_PROBE_FILE_HEADER_RESULT_SUCCESS) {
             file.seekg(0, std::ios::end);
             size_t filesize = file.tellg();
             filestart.resize(filesize);
@@ -104,7 +60,7 @@ public:
             file.read((char*)filestart.data(), filesize);
             f.type = MODULE;
             f.repmod = openmpt_module_create_from_memory2(filestart.data(), filesize, NULL, NULL,
-                                               NULL, NULL, NULL, NULL, NULL);
+                                                          NULL, NULL, NULL, NULL, NULL);
             if(!f.repmod)
                 return 0;
         } else {
@@ -172,6 +128,18 @@ public:
         }
     }
 
+    void returnResource(std::shared_ptr<Resource> obj) {
+        unsigned long id = 0;
+        for(auto &kv : assets) {
+            if(kv.second->filename == obj->filename)
+                id = kv.first;
+        }
+
+        assert(!assets[id]->newres);
+        assert(assets[id]->users > 0);
+        assets[id]->users--;
+    }
+
     void gc() {
         for(auto &kv : assets) {
             if(kv.second->users)
@@ -191,24 +159,26 @@ private:
         rapidxml::xml_document<> document;
         document.parse<0>(xmlfile.data());
         rapidxml::xml_node<> *currentnode = (document.first_node());
-        if(currentnode->name() == "schema") {
+        if(strcmp(currentnode->name(), "schema") == 0) {
             currentnode = currentnode->first_node();
-            while (!currentnode) {
+            while (currentnode) {
                 std::cout << currentnode->name() << std::endl;
                 std::cout << strlen(currentnode->name()) << std::endl;
                 if (strcmp(currentnode->name(),"text") == 0) {
                     Text t;
                     rapidxml::xml_attribute<> *attr = currentnode->first_attribute();
-                    while(!attr) {
-                        if(attr->name() == "x") {
+                    while(attr) {
+                        std::string attr_name = attr->name();
+                        if(attr_name == "x") {
                             t.x = std::stof(attr->value());
-                        } else if(attr->name() == "y") {
+                        } else if(attr_name == "y") {
                             t.y = std::stof(attr->value());
-                        } else if(attr->name() == "scl") {
+                        } else if(attr_name == "scl") {
                             t.scl = std::stof(attr->value());
-                        } else if(attr->name() == "action") {
+                        } else if(attr_name == "action") {
                             t.action = attr->value();
                         }
+                        attr = attr->next_attribute();
                     }
                     t.data = currentnode->value();
                     s.text.push_back(t);
@@ -240,8 +210,8 @@ private:
             if (strcmp(currentnode->name(), "song") == 0) {
                 //FILE *file = fopen(currentnode->value(), "rb");
                 //if (file != NULL) {
-                    //openmpt_module *mod = openmpt_module_create(openmpt_stream_get_file_callbacks(), file, NULL, NULL, NULL);
-                    //audio.playModule(mod);
+                //openmpt_module *mod = openmpt_module_create(openmpt_stream_get_file_callbacks(), file, NULL, NULL, NULL);
+                //audio.playModule(mod);
                 //}
             }
 
@@ -257,19 +227,22 @@ private:
                         quad = true;
                     }
                     if (strcmp(verticenode->name(), "texture") == 0) {
-                        bmpread_t bitmap;
                         GLuint loaded_texture;
-                        if (!bmpread(verticenode->value(), 0, &bitmap)) {
+                        std::shared_ptr<Resource> res = getResource(loadTextureFromFile(verticenode->value()));
+
+                        if (!res) {
                             std::cout << "failed to load texture: " << verticenode->value() << std::endl;
                             assert(false);
                         }
+                        LoadedTexture &tex = res->texturerep;
+                        bmpread_t &bitmap = tex.loaded;
                         glGenTextures(1, &loaded_texture);
                         glBindTexture(GL_TEXTURE_2D, loaded_texture);
                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
                         glTexImage2D(GL_TEXTURE_2D, 0, 3, bitmap.width, bitmap.height, 0, GL_RGB, GL_UNSIGNED_BYTE, bitmap.data);
-                        bmpread_free(&bitmap);
+                        returnResource(res);
                         textures.push_back(loaded_texture);
                         textured = true;
                     }

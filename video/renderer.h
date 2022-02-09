@@ -4,11 +4,12 @@
 #include "core/entityman.h"
 #include "audio/media.h"
 #include "video/schemagui.h"
+#include "core/assetman.h"
 
 class glRenderer {
     friend class EntityManager;
 public:
-    glRenderer(EntityManager &manager, MediaStreamer &audio);
+    glRenderer(EntityManager &manager, MediaStreamer &audio, AssetManager &assets);
 
     void spawnPlayerEntity();
 
@@ -19,6 +20,8 @@ public:
     int handleInput();
 
     ~glRenderer();
+
+    schemaGUI gui;
 private:
     unsigned xscr, yscr;
     unsigned long cameraid = 0;
@@ -28,8 +31,8 @@ private:
     double newtime = 0.0;
     MediaStreamer &audio;
     EntityManager &manager;
+    AssetManager &assets;
     GLFWwindow *window = NULL;
-    schemaGUI gui;
 };
 
 #endif // RENDERER_H

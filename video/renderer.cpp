@@ -1,7 +1,7 @@
 #include "renderer.h"
 #include "game/camera.h"
 
-glRenderer::glRenderer(EntityManager &manager, MediaStreamer &audio) : audio(audio), manager(manager) {
+glRenderer::glRenderer(EntityManager &manager, MediaStreamer &audio, AssetManager &assets) : audio(audio), manager(manager), assets(assets) {
     glfwInit();
     xscr = 1280;
     yscr = 720;
@@ -17,23 +17,6 @@ glRenderer::glRenderer(EntityManager &manager, MediaStreamer &audio) : audio(aud
     newtime = glfwGetTime();
     lastphysrun = glfwGetTime();
     gui.updateScreenResolution(xscr, yscr);
-    LoadedSchema l;
-    for (float x = 0.1; x < 0.9001f; x += 0.1f) {
-        for(float y = 0.1; y < 0.9001f; y += 0.1f) {
-            Text t(x, y, 1.0);
-            t.data = "(" + std::to_string(x).substr(0,3) + ", " + std::to_string(y).substr(0,3) + ")";
-            l.text.push_back(t);
-        }
-    }
-    spawnPlayerEntity();
-    gui.addNewSchema("piss", l);
-    gui.activateSchema("piss");
-    Text t2(0.5, 0.95f, 1.0f);
-    t2.data = "Your corpse appears to be missing. Respawn?";
-    LoadedSchema death;
-    death.text.push_back(t2);
-    gui.addNewSchema("death", death);
-    gui.activateSchema("");
 }
 
 void glRenderer::spawnPlayerEntity() {
@@ -41,7 +24,7 @@ void glRenderer::spawnPlayerEntity() {
     if(p)
         manager.collision.removeCollidableEntity(cameraid);
     std::shared_ptr<CollidableEntity> camera;
-    camera = std::make_shared<PlayerEntity>(manager.collision.bt_world, audio, manager);
+    camera = std::make_shared<PlayerEntity>(manager.collision.bt_world, audio, manager, assets);
     camera->setPosition(glm::vec3(3,20,3));
     cameraid = manager.addEntity(camera);
 }
@@ -51,13 +34,13 @@ void glRenderer::spawnGhostEntity() {
     if(p)
         manager.collision.removeCollidableEntity(cameraid);
     std::shared_ptr<CollidableEntity> camera;
-    camera = std::make_shared<GhostEntity>(glm::vec3(18,10,-6), glm::vec3(3,3,3));
-    camera->setPosition(glm::vec3(9,40,9));
+    camera = std::make_shared<GhostEntity>(glm::vec3(40,20,-15), glm::vec3(3,3,3));
     cameraid = manager.addEntity(camera);
 }
 
 void glRenderer::drawScreen() {
     manager.drawAllObjects();
+    gui.handleControl(window);
     gui.drawGUI();
     glFlush();
     glfwSwapBuffers(window);
@@ -75,15 +58,19 @@ int glRenderer::handleInput() {
         p = (AbstractCameraEntity*)manager.getCollidableEntity(cameraid);
         lastphysrun = glfwGetTime();
         glfwPollEvents();
+        if(gui.inControl()) {
+            goto gui_running;
+        }
         if(p && !(p->getAttribute("type").repstring == "GhostEntity"))
             p->updateCamera(window, dt);
         else if(glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
             spawnPlayerEntity();
             gui.activateSchema("");
-        } else {
+        } else if(!p) {
             spawnGhostEntity();
             gui.activateSchema("death");
         }
+        gui_running:
         dt = 0;
     }
     p = (AbstractCameraEntity*)manager.getCollidableEntity(cameraid);

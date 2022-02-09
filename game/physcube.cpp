@@ -4,6 +4,7 @@
 PhysCube::PhysCube(glm::vec3 position, glm::vec3 direction) {
     obj->setMassProps(3.0, btVector3(1,1,1));
     obj->setCollisionShape(new btBoxShape(btVector3(1, 1, 1)));
+    obj->getCollisionShape()->setMargin(0.05f);
     this->setPosition(direction*btScalar(4.0) + position);
     this->obj->applyCentralImpulse(btVector3(direction.x*16, direction.y*16, direction.z*16));
     attributes["type"] = DatObj("PhysCube");

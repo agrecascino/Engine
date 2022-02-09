@@ -2,7 +2,7 @@
 #include "game/physcube.h"
 #include <iostream>
 
-PlayerEntity::PlayerEntity(btDynamicsWorld *bt_world, MediaStreamer &audio, EntityManager &manager) : audio(audio), manager(manager) {
+PlayerEntity::PlayerEntity(btDynamicsWorld *bt_world, MediaStreamer &audio, EntityManager &manager, AssetManager &assets) : audio(audio), manager(manager), assets(assets) {
     obj->setMassProps(2.0, btVector3(0,0,0));
     obj->setCollisionShape(new btCapsuleShape(1, 2));
     obj->setFriction(1);
@@ -10,9 +10,7 @@ PlayerEntity::PlayerEntity(btDynamicsWorld *bt_world, MediaStreamer &audio, Enti
     obj->setMotionState(groundMotionState);
     current_world = bt_world;
     fixed = false;
-    drwav_init_file(&pWav, "audio/bang.wav", NULL);
-    pSampleData = new int16_t[pWav.totalPCMFrameCount];
-    drwav_read_pcm_frames_s16(&pWav, pWav.totalPCMFrameCount, pSampleData);
+    bang = assets.getResource(assets.loadSoundFromFile("bang.wav"));
     std::cout << "Testing...." << std::endl;
 }
 
@@ -50,60 +48,53 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
     //float light_direction[] = { position.x, position.y, position.z, 1.0f };
     glLightfv(GL_LIGHT0, GL_POSITION, position);
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
-    bool moved = false;
+    bool moved_ws = false;
+    bool moved_ad = false;
+    int dir_ws = 0;
+    int dir_ad = 0;
+
     if (glfwGetKey(windowptr, GLFW_KEY_W) == GLFW_PRESS) {
-        moved = true;
-        glm::vec3 temporary = direction * speed;
-        //temporary.y = 0;
-        //btVector3 a(convert(temporary));
-        //a.setY(obj->getLinearVelocity().getY());
-        //a.setX(a.getX() * 25);
-        //a.setZ(a.getZ() * 25);
-        //obj->setLinearVelocity(a);
-        //obj->setLinearVelocity(obj->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-        obj->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+        moved_ws = true;
+        dir_ws += 1;
     }
 
     if (glfwGetKey(windowptr, GLFW_KEY_S) == GLFW_PRESS) {
-        moved = true;
-        glm::vec3 temporary = -(direction * speed);
-        temporary.y = 0;
-        btVector3 a(convert(temporary));
-        a.setY(obj->getLinearVelocity().getY());
-        a.setX(a.getX() * 25);
-        a.setZ(a.getZ() * 25);
-        obj->setLinearVelocity(a);
-        //obj->setLinearVelocity(obj->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-        //obj->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+        moved_ws = true;
+        dir_ws -= 1;
     }
 
     if (glfwGetKey(windowptr, GLFW_KEY_D) == GLFW_PRESS) {
-        moved = true;
-        glm::vec3 temporary = right * speed;
-        temporary.y = 0;
-        btVector3 a(convert(temporary));
-        a.setY(obj->getLinearVelocity().getY());
-        a.setX(a.getX() * 25);
-        a.setZ(a.getZ() * 25);
-        obj->setLinearVelocity(a);
-        //obj->setLinearVelocity(obj->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-        //obj->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
-
+        moved_ad = true;
+        dir_ad += 1;
     }
 
     if (glfwGetKey(windowptr, GLFW_KEY_A) == GLFW_PRESS) {
-        moved = true;
-        glm::vec3 temporary = -(right * speed);
-        temporary.y = 0;
-        btVector3 a(convert(temporary));
-        a.setY(obj->getLinearVelocity().getY());
-        a.setX(a.getX() * 25);
-        a.setZ(a.getZ() * 25);
-        obj->setLinearVelocity(a);
-        //obj->setLinearVelocity(obj->getLinearVelocity() + convert(temporary) * btVector3(4,4,4));
-        //obj->applyCentralImpulse(btVector3(temporary.x, temporary.y, temporary.z));
+        moved_ad = true;
+        dir_ad -= 1;
     }
+    velocity[0] += dir_ws*2.0f;
+    velocity[1] += dir_ad*2.0f;
+    if(!moved_ws) {
+        velocity[0] = (velocity[0])/1.2f;
+    }
+    if(!moved_ad) {
+        velocity[1] = (velocity[1])/1.2f;
+    }
+    velocity[0] = clip(velocity[0], -12, 12);
+    velocity[1] = clip(velocity[1], -11, 11);
 
+    if(moved_ws) {
+        go[0] = direction*(float)abs(dir_ws);
+    }
+    if(moved_ad) {
+        go[1] = right*(float)abs(dir_ad);
+    }
+    glm::vec3 go2 = go[0]*velocity[0] + go[1]*velocity[1];
+    float pre_y = obj->getLinearVelocity().getY();
+    go2.y = pre_y;
+
+    std::cout << glm::length(direction)*velocity[0] << "," << glm::length(direction)*velocity[1] << std::endl;
+    obj->setLinearVelocity(convert(go2));
     if (glfwGetKey(windowptr, GLFW_KEY_N) == GLFW_PRESS) {
         no = true;
         if (current_world->getGravity().getY() == 0) {
@@ -115,13 +106,13 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
 
     if (glfwGetKey(windowptr, GLFW_KEY_SPACE) == GLFW_PRESS) {
         if (jumpEnable) {
-            obj->applyCentralImpulse(btVector3(0, 24, 0));
+            obj->applyCentralImpulse(btVector3(0, 30, 0));
             jumpEnable = false;
         }
     }
 
     if (cubeEnable && (glfwGetKey(windowptr, GLFW_KEY_E) == GLFW_PRESS)) {
-        audio.QueueNewSound(pSampleData, pWav.totalPCMFrameCount, false);
+        audio.sfxQueue(bang);
         PhysCube *cube = new PhysCube(glm::vec3(location.getX(), location.getY(), location.getZ()), direction);
         cube->setPosition(direction*btScalar(4.0) + glm::vec3(obj->getWorldTransform().getOrigin().getX(), obj->getWorldTransform().getOrigin().getY(), obj->getWorldTransform().getOrigin().getZ()));
         cube->getRigidBody()->setLinearVelocity(convert(direction)*btScalar(5.f));
@@ -141,7 +132,19 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
 
 
     }
-    if(glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS && !cap_on) {
+
+    if(glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS && cap_on && releaseEnable) {
+        cap_on = false;
+        CollidableEntity* ent = (CollidableEntity*)manager.getCollidableEntity(captured_obj);
+        ent->getRigidBody()->clearForces();
+        ent->getRigidBody()->activate(true);
+        captured_obj = 0;
+        capEnable = false;
+        releaseEnable = false;
+        relctr = 0;
+    }
+
+    if(glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS && !cap_on && capEnable) {
         struct Ray r;
         r.position = glm::vec3(location.getX(), location.getY(), location.getZ());
         r.direction = glm::normalize(direction);
@@ -165,6 +168,7 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
                     cap_on = true;
                 }
                 boxctr++;
+                relctr++;
             }
         }
     }
@@ -180,6 +184,10 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
 
     }
 no_cap:
+    if (relctr > 0)
+        relctr++;
+    if (relctr > 180)
+        releaseEnable = true;
     if (!cubeEnable) {
         cctr++;
     }
@@ -188,23 +196,25 @@ no_cap:
         std::cout << "iframe" << std::endl;
         framectr++;
     }
+
+    if(!capEnable && !cap_on)
+        capctr++;
+    if(capctr == 8) {
+        capEnable = true;
+        capctr = 0;
+    }
     if (framectr == 3) {
         jumpEnable = true;
         framectr = 0;
     }
 
-    if (cctr == 12) {
+    if (cctr == 8) {
         cubeEnable = true;
         manager.collision.setSimSpeed(1.0f);
         cctr = 0;
     }
 
 bail:
-    btVector3 vel = obj->getLinearVelocity();
-    vel.setY(clip(vel.getY(), -32, 32));
-    vel.setX(clip(vel.getX(), -12, 12));
-    vel.setZ(clip(vel.getZ(), -12, 12));
-    obj->setLinearVelocity(vel);
     viewmatrix = glm::lookAt(glm::vec3(location.getX(), location.getY(), location.getZ()), glm::vec3(location.getX(), location.getY(), location.getZ()) + direction, up) * glm::mat4(1.0);
     //std::cout << location.getY() << std::endl;
     obj->setAngularVelocity(btVector3(0,0,0));

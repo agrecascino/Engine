@@ -1,39 +1,13 @@
 #ifndef MEDIA_H
 #define MEDIA_H
-
-#include <libopenmpt/libopenmpt.h>
-#include <libopenmpt/libopenmpt_stream_callbacks_file.h>
 #include <AL/al.h>
 #include <AL/alut.h>
 #include "deps/dr_wav.h"
 #include <chrono>
 #include <thread>
 #include <vector>
-
-enum MediaType {
-    MODULE,
-    WAVE,
-    UNLOADED
-};
-
-
-struct MediaFile {
-    MediaFile(void) { type = UNLOADED; }
-
-    MediaFile(openmpt_module *mod) {
-        type = MODULE;
-        repmod = mod;
-    }
-
-    MediaFile(drwav loaded) {
-        type = MODULE;
-        repwav = loaded;
-    }
-
-    MediaType type;
-    openmpt_module *repmod;
-    drwav repwav;
-};
+#include "core/assetman.h"
+#include "core/resourcetypes.h"
 
 enum MediaStreamerError {
     OKAY,
@@ -89,7 +63,7 @@ end:
 
         ALuint buffer;
         alGenBuffers(1, &buffer);
-        alBufferData(buffer, format, samples, len*((format == AL_FORMAT_STEREO16) ? 2 : 1), 44100);
+        alBufferData(buffer, format, samples, len*((format == AL_FORMAT_STEREO16) ? 2 : 1)*sizeof(int16_t), 44100);
         alSourcei(sources[sid], AL_BUFFER, buffer);
         int buffers = 0;
         alSourcePlay(sources[sid]);
@@ -109,18 +83,33 @@ end:
         return true;
     }
 
-    MediaStreamerError sfxQueue(unsigned long id) {
-
+    MediaStreamerError sfxQueue(std::shared_ptr<Resource> r) {
+        MediaFile &file = r->mediarep;
+        if(file.type == WAVE) {
+            int16_t *buf =
+                    new int16_t[file.repwav.totalPCMFrameCount *
+                                file.repwav.channels];
+            drwav_read_pcm_frames_s16(&file.repwav, file.repwav.totalPCMFrameCount, buf);
+            drwav_seek_to_pcm_frame(&file.repwav, 0);
+            if(queueNewWave(buf, file.repwav.totalPCMFrameCount *
+                          file.repwav.channels, file.repwav.channels - 1)) {
+                delete[] buf;
+                return OKAY;
+            }
+            delete[] buf;
+            return NO_MORE_POLYPHONY;
+        }
+        return NO_SOUND_FOUND;
     }
 
-    int QueueNewSound(int16_t *ptr, int size, int stereo) {
+    int queueNewWave(int16_t *ptr, int size, int stereo) {
         ALint state;
         for (int i = 1; i < 32; i++) {
             alGetSourcei(sources[i], AL_SOURCE_STATE, &state);
             if (!sourcestate[i]) {
                 sourcestate[i] = true;
-                int16_t *copy = new int16_t[size];
-                memcpy(copy, ptr, size * 2);
+                int16_t *copy = new int16_t[size * (stereo+1)];
+                memcpy(copy, ptr, size * (stereo+1) * sizeof(int16_t));
                 ALint format = stereo ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16;
                 t[i] = std::thread(&MediaStreamer::sfxPlayerWorker, this, i, format, copy, size);
                 t[i].detach();

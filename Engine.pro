@@ -13,9 +13,10 @@ SOURCES += main.cpp \
     game/polyobject.cpp \
     game/sky.cpp \
     core/entityman.cpp \
-    core/collisionman.cpp
+    core/collisionman.cpp \
+    deps/audiohack.cpp
 
-QMAKE_CXXFLAGS += -fcommon -pthread -I/usr/include/bullet -I/usr/include/freetype2 -std=c++14 -O2
+QMAKE_CXXFLAGS += -fcommon -pthread -I/usr/include/bullet -I/usr/include/freetype2 -std=c++14 -O0 -g
 
 LIBS +=  -lstdc++fs -lalut -lopenal -lopenmpt -lpthread -lGLU -lGL -lLinearMath -lglfw -lBulletCollision -lBulletDynamics -lfreetype
 
@@ -38,4 +39,5 @@ HEADERS += \
     core/assetman.h \
     deps/libfont.h \
     video/renderer.h \
-    video/schemagui.h
+    video/schemagui.h \
+    core/resourcetypes.h

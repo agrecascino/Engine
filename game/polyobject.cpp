@@ -41,6 +41,7 @@ void PolyObject::setGeometry(std::vector<glm::vec3> polygons, bool isquad) {
         }
     }
     obj->setCollisionShape(new btBvhTriangleMeshShape(mesh, false));
+    obj->getCollisionShape()->setMargin(0.05f);
 }
 
 void PolyObject::setTextures(std::vector<GLuint> textures) {

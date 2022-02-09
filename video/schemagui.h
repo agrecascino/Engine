@@ -3,20 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
-
-struct Text {
-    Text(float x, float y, float scl) : x(x), y(y), scl(scl) {}
-    Text() {}
-    float x = 0.0f;
-    float y = 0.0f;
-    float scl = 1.0f;
-    std::string data;
-    std::string action;
-};
-
-struct LoadedSchema {
-    std::vector<Text> text;
-};
+#include "core/resourcetypes.h"
 
 
 class schemaGUI {
@@ -31,11 +18,19 @@ public:
     void clearSchemas();
     /* activate schema from cache */
     void activateSchema(std::string name);
-    /*draw active schema */
+    /* draw active schema */
     void drawGUI();
-
+    /* returns true if gui is in control of HID */
+    bool inControl();
+    /* takes control */
+    void takeControl();
+    /* lose control */
+    void loseControl();
+    /* handle control of window */
+    void handleControl(GLFWwindow *windowptr);
 private:
     unsigned xscr, yscr;
+    bool control = false;
     std::string activeschema;
     std::map<std::string, LoadedSchema> schemas;
 

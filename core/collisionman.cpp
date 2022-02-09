@@ -62,7 +62,7 @@ float CollisionManager::setSimSpeed(float speed) {
 }
 
 void CollisionManager::stepSimulation(float dt) {
-    bt_world->stepSimulation(dt/simSpeed,0, 1/120.f);
+    bt_world->stepSimulation(dt/simSpeed,0, 1/480.f);
     for(auto &kv : collidables) {
         if(kv.second->getPosition().y < -10.f) {
             removeCollidableEntity(kv.first);

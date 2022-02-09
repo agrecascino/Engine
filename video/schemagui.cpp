@@ -25,6 +25,31 @@ void schemaGUI::activateSchema(std::string name) {
     activeschema = name;
 }
 
+bool schemaGUI::inControl() {
+    return control;
+}
+
+void schemaGUI::takeControl() {
+    control = true;
+}
+
+void schemaGUI::loseControl() {
+    control = false;
+}
+
+void schemaGUI::handleControl(GLFWwindow *windowptr) {
+    double x, y;
+    glfwGetCursorPos(windowptr, &x, &y);
+    float cx = x/xscr;
+    float cy = y/yscr;
+    drawTextToFB(2.0, "+", cx, 1.0f-cy, 1.0f);
+    std::string debug = std::to_string(cx) + ", " + std::to_string(cy);
+    drawTextToFB(1.0f, debug.c_str(), 0.5f, 0.95f, 1.0f);
+    if(glfwGetMouseButton(windowptr, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS) {
+
+    }
+}
+
 void schemaGUI::drawGUI() {
     if(schemas.find("activeschema") != schemas.end())
         return;
@@ -70,7 +95,7 @@ void schemaGUI::drawTextToFB(float scl, const char *t, float xposc, float yposc,
     /* The default blend function for existence */
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
     /* Default alpha */
-    glm::vec4 alpha(1.0f, 1.0f, 1.0f, 1.0f);
+    glm::vec4 alpha(1.0f, 1.0f, 1.0f, 0.7f);
     unsigned char *tdata = drawText(t, alpha);
     struct Texture tex;
     tex.data = tdata;

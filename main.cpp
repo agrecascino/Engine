@@ -1,6 +1,6 @@
 /* Fixes compile errors related to include ordering. */
 #include <GLFW/glfw3.h>
-
+#define GLM_FORCE_RADIANS 1
 #include "core/entityman.h"
 #include "core/assetman.h"
 #include "video/renderer.h"
@@ -11,7 +11,7 @@
 class Engine {
     friend class glRenderer;
 public:
-    Engine() : video(manager, audio) {}
+    Engine() : video(manager, audio, assets) {}
 
     void loadMapEntities(std::shared_ptr<Resource> &r) {
         manager.clearAllObjects();
@@ -37,8 +37,18 @@ public:
                 std::shared_ptr<Resource> r = assets.getResource(mapid);
                 loadMapEntities(r);
             }
+            if (strcmp(currentnode->name(),"loadschema") == 0) {
+                unsigned long guiid = assets.loadSchemaFromFile(currentnode->value());
+                std::shared_ptr<Resource> r = assets.getResource(guiid);
+                std::string name = std::string(currentnode->value()).substr(0, strlen(currentnode->value()) - 4);
+                video.gui.addNewSchema(name, r->schemarep);
+                video.gui.activateSchema(name);
+                assets.returnResource(guiid);
+            }
             currentnode = currentnode->next_sibling();
         }
+        video.spawnGhostEntity();
+        video.gui.takeControl();
     }
 
     void gameLoop() {
