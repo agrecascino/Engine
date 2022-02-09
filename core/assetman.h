@@ -177,6 +177,12 @@ private:
                             t.scl = std::stof(attr->value());
                         } else if(attr_name == "action") {
                             t.action = attr->value();
+                        } else if(attr_name == "align") {
+                            std::string aligned = attr->value();
+                            if(aligned == "left")
+                                t.align = LEFT;
+                            else if(aligned == "right")
+                                t.align = RIGHT;
                         }
                         attr = attr->next_attribute();
                     }

@@ -4,7 +4,7 @@
 #include <bullet/btBulletCollisionCommon.h>
 #include <GLFW/glfw3.h>
 #include <cmath>
-#include <glm/common.hpp>
+#include <glm/vec3.hpp>
 #include <glm/geometric.hpp>
 
 inline bool isEqual(double x, double y)

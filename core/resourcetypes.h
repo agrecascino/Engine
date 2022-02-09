@@ -15,6 +15,12 @@ enum MediaType {
     UNLOADED
 };
 
+enum TextAlignment {
+    CENTER,
+    LEFT,
+    RIGHT
+};
+
 struct Text {
     Text(float x, float y, float scl) : x(x), y(y), scl(scl) {}
     Text() {}
@@ -23,6 +29,7 @@ struct Text {
     float scl = 1.0f;
     std::string data;
     std::string action;
+    TextAlignment align = CENTER;
 };
 
 struct LoadedSchema {
