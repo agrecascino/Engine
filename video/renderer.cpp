@@ -40,8 +40,8 @@ void glRenderer::spawnGhostEntity() {
 
 void glRenderer::drawScreen() {
     manager.drawAllObjects();
-    gui.handleControl(window);
     gui.drawGUI();
+    gui.handleControl(window);
     glFlush();
     glfwSwapBuffers(window);
 }
@@ -52,8 +52,6 @@ int glRenderer::handleInput() {
     dt += ((double)newtime - (double)oldtime);
     AbstractCameraEntity* p = nullptr;
     if(dt > 0.016) {
-        double phystime = newtime - lastphysrun;
-        //std::cout << (phystime * 1000) << std::endl;
         manager.collision.stepSimulation(dt);
         p = (AbstractCameraEntity*)manager.getCollidableEntity(cameraid);
         lastphysrun = glfwGetTime();

@@ -3,7 +3,6 @@
 
 #include <glm/common.hpp>
 #include <unordered_map>
-#include "core/entity.h"
 #include "deps/utilityfunc.h"
 #include <bullet/btBulletCollisionCommon.h>
 #include <bullet/btBulletDynamicsCommon.h>

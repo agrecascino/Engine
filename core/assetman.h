@@ -152,45 +152,83 @@ public:
     }
 
 private:
+    Window* parseWindow(rapidxml::xml_node<> *node, Window *w) {
+        Window *currentwindow = w;
+        rapidxml::xml_node<> *currentnode = node;
+        while (currentnode) {
+            std::cout << currentnode->name() << std::endl;
+            std::cout << strlen(currentnode->name()) << std::endl;
+            if (strcmp(currentnode->name(),"text") == 0) {
+                Text t;
+                rapidxml::xml_attribute<> *attr = currentnode->first_attribute();
+                while(attr) {
+                    std::string attr_name = attr->name();
+                    if(attr_name == "x") {
+                        t.x = std::stof(attr->value());
+                    } else if(attr_name == "y") {
+                        t.y = std::stof(attr->value());
+                    } else if(attr_name == "scl") {
+                        t.scl = std::stof(attr->value());
+                    } else if(attr_name == "action") {
+                        t.action = attr->value();
+                    } else if(attr_name == "align") {
+                        std::string aligned = attr->value();
+                        if(aligned == "left")
+                            t.align = LEFT;
+                        else if(aligned == "right")
+                            t.align = RIGHT;
+                    } else if(attr_name == "hidden") {
+                        t.hidden = std::string(attr->value()) == "true";
+                    }
+                    attr = attr->next_attribute();
+                }
+                t.data = currentnode->value();
+                currentwindow->text.push_back(t);
+            }
+            if (strcmp(currentnode->name(),"window") == 0) {
+                rapidxml::xml_attribute<> *attr = currentnode->first_attribute();
+                Window *subwindow = new Window;
+                subwindow->color = DEFAULT_SUBWINDOW_COLOR;
+                subwindow->parent = currentwindow;
+                while(attr) {
+                    std::string attr_name = attr->name();
+                    if(attr_name == "x") {
+                        subwindow->x = std::stof(attr->value());
+                    } else if(attr_name == "y") {
+                        subwindow->y = std::stof(attr->value());
+                    } else if(attr_name == "xsz") {
+                        subwindow->xsz = std::stof(attr->value());
+                    } else if(attr_name == "ysz") {
+                        subwindow->ysz = std::stof(attr->value());
+                    } else if(attr_name == "hidden") {
+                        subwindow->hidden = std::string(attr->value()) == "true";
+                    }
+                    attr = attr->next_attribute();
+                }
+                parseWindow(currentnode->first_node(), subwindow);
+                currentwindow->subwindows.push_back(subwindow);
+            }
+            currentnode = currentnode->next_sibling();
+        }
+    }
 
     LoadedSchema loadSchemaXML(std::string filename) {
         LoadedSchema s;
+        s.main = new Window;
         rapidxml::file<> xmlfile(filename.c_str());
         rapidxml::xml_document<> document;
         document.parse<0>(xmlfile.data());
         rapidxml::xml_node<> *currentnode = (document.first_node());
         if(strcmp(currentnode->name(), "schema") == 0) {
             currentnode = currentnode->first_node();
-            while (currentnode) {
-                std::cout << currentnode->name() << std::endl;
-                std::cout << strlen(currentnode->name()) << std::endl;
-                if (strcmp(currentnode->name(),"text") == 0) {
-                    Text t;
-                    rapidxml::xml_attribute<> *attr = currentnode->first_attribute();
-                    while(attr) {
-                        std::string attr_name = attr->name();
-                        if(attr_name == "x") {
-                            t.x = std::stof(attr->value());
-                        } else if(attr_name == "y") {
-                            t.y = std::stof(attr->value());
-                        } else if(attr_name == "scl") {
-                            t.scl = std::stof(attr->value());
-                        } else if(attr_name == "action") {
-                            t.action = attr->value();
-                        } else if(attr_name == "align") {
-                            std::string aligned = attr->value();
-                            if(aligned == "left")
-                                t.align = LEFT;
-                            else if(aligned == "right")
-                                t.align = RIGHT;
-                        }
-                        attr = attr->next_attribute();
-                    }
-                    t.data = currentnode->value();
-                    s.text.push_back(t);
-                }
-                currentnode = currentnode->next_sibling();
-            }
+            s.main->x = 0;
+            s.main->y = 0;
+            s.main->xsz = 1.0f;
+            s.main->ysz = 1.0f;
+            s.main->parent = NULL;
+            s.main->hidden = false;
+            s.main->color = DEFAULT_MAINWINDOW_COLOR;
+            parseWindow(currentnode, s.main);
         }
         return s;
     }

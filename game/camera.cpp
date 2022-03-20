@@ -24,9 +24,7 @@ void PlayerEntity::updateCamera(GLFWwindow *windowptr, double dt) {
     double xpos = 0, ypos = 0;
     if (!no) {
         glfwGetCursorPos(windowptr, &xpos, &ypos);
-
-    }
-    else {
+    } else {
         xpos = xscr/2;
         ypos = yscr/2;
     }

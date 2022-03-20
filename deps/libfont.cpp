@@ -252,9 +252,9 @@ uint8_t *drawText(const char* s, glm::vec4 color) {
     uint8_t *tex = (uint8_t*)malloc(x*y*4);
     memset(tex, 0, x*y*4);
     uint32_t xc = 0;
-    for(int i = 0; i < strlen(s); i++) {
+    for(size_t i = 0; i < strlen(s); i++) {
         char c = s[i];
-        const GLubyte *character = Fixed9x15_Character_Map[c] + 1;
+        const GLubyte *character = Fixed9x15_Character_Map[(uint8_t)c] + 1;
         for(size_t yline = 0; yline < y; yline++) {
             uint8_t line = *(character + (yline*2));
             for(size_t shift = 0; shift < 8; shift++) {

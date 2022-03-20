@@ -44,7 +44,14 @@ public:
     void schemaDebounce(GLFWwindow *windowptr);
     /* get debounced key */
     schemaKeyPress schemaGetDebouncedKey(schemaMouseButton button);
+    /* draw window */
+    void drawWindowToFB(float x, float y, float xsz, float ysz, glm::vec4 color);
+    /* draw window object */
+    void drawWindow(Window *w);
+    Window* pickWindowMain(Window *w, float x, float y);
+    Text* deepItemPick(Window *w, float x, float y);
 private:
+    float xcursclick, ycursclick;
     schemaKeyPress buttons[2] = { SCHEMA_LIFTED, SCHEMA_LIFTED };
     unsigned xscr, yscr;
     bool control = false;
